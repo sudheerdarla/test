@@ -1,0 +1,126 @@
+<title>Star Dodger</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+:root{--bg:#0b0b1e;--fg:#f2f0ff;--star:#ffd23f;--rock:#ff4d6d;--ship:#3df5c8;--dim:#8d8bb8;color-scheme:dark}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:"Trebuchet MS",system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box}
+#wrap{position:relative;height:100%;max-width:520px;margin:0 auto}
+canvas{display:block;width:100%;height:100%}
+.hud{position:absolute;top:8px;left:0;right:0;display:flex;justify-content:space-between;font-weight:700;font-size:18px;letter-spacing:.06em;font-variant-numeric:tabular-nums;pointer-events:none}
+.hud .lives{color:var(--rock)}
+.hud .score{color:var(--star)}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;background:rgba(11,11,30,.82)}
+#overlay h1{margin:0;font-size:44px;letter-spacing:.08em;text-transform:uppercase;color:var(--ship);text-wrap:balance}
+#overlay p{margin:0;color:var(--dim);max-width:30ch;line-height:1.5}
+#overlay .best{color:var(--star);font-weight:700}
+button{font:inherit;font-weight:700;font-size:20px;letter-spacing:.1em;text-transform:uppercase;padding:14px 36px;border:0;border-radius:999px;background:var(--ship);color:#04251d;cursor:pointer}
+button:focus-visible{outline:3px solid var(--star);outline-offset:3px}
+</style>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div class="hud"><span class="lives" id="lives">♥ ♥ ♥</span><span class="score" id="score">0</span></div>
+  <div id="overlay">
+    <h1 id="title">Star Dodger</h1>
+    <p id="msg">Drag left and right to steer. Catch the stars, dodge the red rocks.</p>
+    <p class="best" id="best"></p>
+    <button id="go" type="button">Play</button>
+  </div>
+</div>
+<script>
+(function(){
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+let W,H,dpr;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=cv.clientWidth;H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+let best=0;try{best=+localStorage.getItem('stardodger-best')||0}catch(e){}
+let running=false,score=0,lives=3,t=0,items=[],parts=[],stars=[],ship={x:0,y:0,tx:0},flash=0;
+for(let i=0;i<50;i++)stars.push({x:Math.random(),y:Math.random(),s:Math.random()*1.6+.4});
+
+function showBest(){$('best').textContent=best?'Best: '+best:''}
+showBest();
+
+function start(){
+  score=0;lives=3;t=0;items=[];parts=[];flash=0;
+  ship.x=ship.tx=W/2;ship.y=H-90;
+  $('overlay').hidden=true;running=true;hud();last=performance.now();
+}
+function hud(){$('score').textContent=score;$('lives').textContent=Array(lives).fill('♥').join(' ')||'—'}
+function end(){
+  running=false;
+  if(score>best){best=score;try{localStorage.setItem('stardodger-best',best)}catch(e){}}
+  $('title').textContent='Game Over';
+  $('msg').textContent='You scored '+score+'.';
+  showBest();$('go').textContent='Play again';$('overlay').hidden=false;
+}
+function burst(x,y,c){for(let i=0;i<14;i++){const a=Math.random()*6.28,v=60+Math.random()*140;parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:.5,c})}}
+
+function spawn(){
+  const rock=Math.random()<.62;
+  const r=rock?14+Math.random()*14:11;
+  items.push({x:r+Math.random()*(W-2*r),y:-r,r,rock,vy:(rock?150:130)+t*7+Math.random()*60,rot:Math.random()*6,vr:(Math.random()-.5)*4});
+}
+let spawnT=0,last=0;
+function update(dt){
+  t+=dt;
+  ship.x+=(ship.tx-ship.x)*Math.min(1,dt*18);
+  spawnT-=dt;
+  if(spawnT<=0){spawn();spawnT=Math.max(.28,.85-t*.012)}
+  for(const it of items){
+    it.y+=it.vy*dt;it.rot+=it.vr*dt;
+    const dx=it.x-ship.x,dy=it.y-ship.y;
+    if(!it.dead&&Math.hypot(dx,dy)<it.r+16){
+      it.dead=true;
+      if(it.rock){lives--;flash=.3;burst(it.x,it.y,'#ff4d6d');navigator.vibrate&&navigator.vibrate(60);hud();if(lives<=0)end()}
+      else{score+=10;burst(it.x,it.y,'#ffd23f');hud()}
+    }
+  }
+  items=items.filter(i=>!i.dead&&i.y<H+40);
+  for(const p of parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt}
+  parts=parts.filter(p=>p.l>0);
+  flash=Math.max(0,flash-dt);
+}
+function star(x,y,r,rot){
+  ctx.beginPath();
+  for(let i=0;i<10;i++){const a=rot+i*Math.PI/5-Math.PI/2,rr=i%2?r*.45:r;ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr)}
+  ctx.closePath();
+}
+function draw(){
+  ctx.fillStyle=flash?'#3a0f22':'#0b0b1e';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#8d8bb8';
+  for(const s of stars){ctx.globalAlpha=.3+s.s*.25;ctx.fillRect(s.x*W,((s.y*H+t*s.s*30)%H),s.s,s.s)}
+  ctx.globalAlpha=1;
+  for(const it of items){
+    if(it.rock){
+      ctx.fillStyle='#ff4d6d';ctx.beginPath();
+      for(let i=0;i<7;i++){const a=it.rot+i*6.283/7,rr=it.r*(i%2?.78:1);ctx.lineTo(it.x+Math.cos(a)*rr,it.y+Math.sin(a)*rr)}
+      ctx.closePath();ctx.fill();
+    }else{
+      ctx.fillStyle='#ffd23f';ctx.shadowColor='#ffd23f';ctx.shadowBlur=12;
+      star(it.x,it.y,it.r,it.rot);ctx.fill();ctx.shadowBlur=0;
+    }
+  }
+  for(const p of parts){ctx.globalAlpha=p.l*2;ctx.fillStyle=p.c;ctx.fillRect(p.x,p.y,3,3)}
+  ctx.globalAlpha=1;
+  if(running){
+    ctx.fillStyle='#3df5c8';ctx.shadowColor='#3df5c8';ctx.shadowBlur=14;
+    ctx.beginPath();ctx.moveTo(ship.x,ship.y-20);ctx.lineTo(ship.x+16,ship.y+16);ctx.lineTo(ship.x,ship.y+8);ctx.lineTo(ship.x-16,ship.y+16);ctx.closePath();ctx.fill();
+    ctx.shadowBlur=0;
+  }
+}
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(running)update(dt);else t+=dt*.3;
+  draw();requestAnimationFrame(loop);
+}
+function pos(e){const r=cv.getBoundingClientRect();ship.tx=Math.max(16,Math.min(W-16,e.clientX-r.left))}
+cv.addEventListener('pointerdown',e=>{pos(e);cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',pos);
+addEventListener('keydown',e=>{if(!running)return;if(e.key==='ArrowLeft')ship.tx=Math.max(16,ship.tx-70);if(e.key==='ArrowRight')ship.tx=Math.min(W-16,ship.tx+70)});
+$('go').addEventListener('click',start);
+ship.x=ship.tx=W/2;ship.y=H-90;
+requestAnimationFrame(n=>{last=n;loop(n)});
+})();
+</script>
